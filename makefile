@@ -5,7 +5,7 @@
 # @version 0.1
 
 all:
-	cc -o bounce main.c -lraylib -lm
+	cc -o bounce main.c -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 && ./bounce
 
 test:
 	cc -o test test.c && ./test

@@ -35,7 +35,7 @@ Particle genParticle(float x, float y, float vx, float vy, int* counter){
 #define DeltaT 1.0f
 
 
-void drawParticles(Color color, Particle particles[], int n){
+void drawParticles(Particle particles[], int n){
   Color colors[]= {
     DARKPURPLE,
     PINK,
@@ -55,6 +55,11 @@ void drawParticles(Color color, Particle particles[], int n){
   }
   for (int i =0; i<n; i++){
     DrawCircle(particles[i].x, particles[i].y, particles[i].r, colors[i]);
+    /* DrawCircle(particles[i].x + particles[i].vx*DeltaT, */
+    /*            particles[i].y + particles[i].vy*DeltaT, */
+    /*            particles[i].r, colors[i]); */
+    // Draw velocities
+    //DrawLine(particles[i].x, particles[i].y, (particles[i].vx*10+particles[i].x), (particles[i].vy*10+particles[i].y), BLACK);
   }
 }
 
@@ -96,13 +101,12 @@ void resolveCollision(Particle* p1, Particle* p2){
   vx2 = p2->vx - 2.0f*p1->m*frac*(p2->x-p1->x);
   vy2 = p2->vy - 2.0f*p1->m*frac*(p2->y-p1->y);
 
+  //printf("Colliding!   D=%f, Delta=%f\n",distance,distance - (p1->r+p2->r)*(p1->r+p2->r));
   // Assign the new velocities
   p1->vx = vx1;
   p1->vy = vy1;
   p2->vx = vx2;
   p2->vy = vy2;
-  printf("Colliding!   D=%f, Delta=%f\n",distance,distance - (p1->r+p2->r)*(p1->r+p2->r));
-
 }
 
 float collisionDistance(float t, Particle p1, Particle p2){
@@ -118,77 +122,29 @@ float collisionDistance(float t, Particle p1, Particle p2){
 }
 
 float collisionWallTime(Particle p1){
-  float epsilon = 0.001f; // Precission
-  float xn[3] = {0.0f, 0.01f, 0.0f};
-  bool found = false;
-  float denominator;
-  for (int i=0; i<1000; i++) {
-    denominator = (xn[1]-xn[0]);
-    xn[2] = xn[1] - xn[1]*(xn[1]-xn[0])/denominator;
-    if (denominator < epsilon) printf("Denominator = %f\n",denominator);
-    // Cycles through the array
-    xn[0] = xn[1];
-    xn[1] = xn[2];
-    xn[2] = 0.0f;
-    if (xn[1]<epsilon) {
-      found = true;
-      break;
-    }
+  float time;
+  float dx, dy;
+  dx = p1.x + p1.vx*DeltaT;
+  dy = p1.y + p1.vy*DeltaT;
+  if (dx + p1.r> ScreenWidth) {
+    time = fabs(ScreenWidth-p1.x-p1.r)/p1.vx;
   }
-  if (!found) printf("WARNING: Root not found! %f   ",xn[1]);
-  return xn[1];
+  else if (dx - p1.r < 0) {
+    time = (p1.x-p1.r)/p1.vx;
+  }
+  else if (dy + p1.r > ScreenHeight) {
+    time = fabs(ScreenHeight-p1.y-p1.r)/p1.vy;
+  }
+  else if (dy - p1.r < 0) {
+    time = (p1.y-p1.r)/p1.vy;
+  }
+  return time;
 }
 
-float collisionTime2(Particle p1, Particle p2){
-  float epsilon = 0.001f; // Precission
-  float xn[3] = {0.0f, 0.01f, 0.0f};
-  bool found = false;
-  float denominator;
-  for (int i=0; i<1000; i++) {
-    denominator = (collisionDistance(xn[1],p1,p2)-collisionDistance(xn[0],p1,p2));
-    xn[2] = xn[1] - collisionDistance(xn[1],p1,p2)*(xn[1]-xn[0])/denominator;
-    if (fabs(denominator) < epsilon) printf("Denominator = %f\n",denominator);
-    // Cycles through the array
-    xn[0] = xn[1];
-    xn[1] = xn[2];
-    xn[2] = 0.0f;
-    if (fabs(collisionDistance(xn[1],p1,p2))<epsilon) {
-      printf("   ->Theoretical distance=%f\n",collisionDistance(xn[1],p1,p2));
-      printf("   ->Theoretical time=%f\n",xn[1]);
-      found = true;
-      break;
-    }
-  }
-  if (!found) printf("WARNING: Root not found! %f   ",xn[1]);
-  return xn[1];
-}
-float collisionTimeBisection(Particle p1, Particle p2){
-  float epsilon = 0.001f; // Precission
-  float xn[3] = {0.0f, 1.0f, 0.0f};
-  float yn[3] = {collisionDistance(xn[0],p1,p2), collisionDistance(xn[1], p1,p2), 10.0f};
-  bool found = false;
-  for (int i=0; i<1000; i++) {
-    xn[2] = (xn[1]-xn[0])/2;
-    yn[2] = collisionDistance(xn[2],p1,p2);
-    if (fabs(yn[2])<fabs(yn[0])) {
-      xn[0] = xn[2];
-    }
-    else {
-      xn[1] = xn[2];
-    }
-    if (fabs(yn[2])<epsilon) {
-      printf("   ->Theoretical distance=%f\n",yn[2]);
-      printf("   ->Theoretical time=%f\n",xn[2]);
-      found = true;
-      break;
-    }
-  }
-  if (!found) printf("WARNING: Root not found! %f   ",xn[1]);
-  return xn[2];
-}
 float collisionTime(Particle p1, Particle p2){
   float dx, dy, dvx, dvy;
   float a, b, c; // 2nd degree equation coefficients
+  float time;
   dx = p2.x - p1.x;
   dy = p2.y - p1.y;
   dvx = (p2.vx - p1.vx)*DeltaT;
@@ -196,8 +152,11 @@ float collisionTime(Particle p1, Particle p2){
   a = dvx*dvx + dvy*dvy;
   b = 2.0f*(dx*dvx + dy*dvy);
   c = dx*dx + dy*dy - (p1.r+p2.r)*(p1.r+p2.r);
-  printf("Time = %f\n",(-b-sqrt(b*b - 4.0f*a*c))/(2.0f*a));
-  return (-b-sqrt(b*b - 4.0f*a*c))/(2.0f*a);
+  time = (-b-sqrt(b*b - 4.0f*a*c))/(2.0f*a);
+  if (time < 0.0f || time > 1.0f) {
+    printf("WARNING: Collision time outside frame");
+  }
+  return time;
 }
 
 float zeroSecant(float func(float), float guess, float guess2, float epsilon){
@@ -222,16 +181,19 @@ void updateParticle(Particle* particle, float t){
   particle->y += particle->vy*t;
 }
 
-
 void manageCollisions(Particle particles[], int n){
   bool collided[n];
-  for (int i=0; i<n;i++){collided[i]=false;}
+  float nextX[2];
   for (int i=0; i<n; i++){
+    nextX[0] = particles[i].x+ particles[i].vx*DeltaT;
+    nextX[1] = particles[i].y+ particles[i].vy*DeltaT;
     // Collisions with screen edges
-    if ((particles[i].x - particles[i].r<0) | (particles[i].x+particles[i].r>ScreenWidth)){
+    if ((nextX[0] - particles[i].r<0) | (nextX[0]+particles[i].r>ScreenWidth)){
+      collided[i] = true;
       particles[i].vx *= -1.0f;
     }
-    if ((particles[i].y - particles[i].r<0) | (particles[i].y+particles[i].r>ScreenHeight)){
+    if ((nextX[1] - particles[i].r<0) | (nextX[1]+particles[i].r>ScreenHeight)){
+      collided[i] = true;
       particles[i].vy *= -1.0f;
     }
     // Collisions between other particles
@@ -249,16 +211,18 @@ void manageCollisions(Particle particles[], int n){
           float dy = futureX[1]-futureX[3];
           float dist = (dx)*(dx) + (dy)*(dy);
           float colDist = (particles[i].r+particles[j].r)*(particles[i].r+particles[j].r);
-          if (dist < colDist) {
+          float dxp = particles[i].x-particles[j].x;
+          float dyp = particles[i].y-particles[j].y;
+          if ((dist < colDist) && !(dxp*dxp + dyp*dyp < colDist)) {
             // Buscar el punt on xoquen i calcular a on han de ser al següent instant de temps
             float time = collisionTime(particles[i], particles[j]);
             collided[i] = true;
             collided[j] = true;
-            updateParticle(&particles[i],time);
-            updateParticle(&particles[j],time);
+            updateParticle(&particles[i],time*DeltaT);
+            updateParticle(&particles[j],time*DeltaT);
             resolveCollision(&particles[i],&particles[j]);
-            updateParticle(&particles[i],DeltaT-time);
-            updateParticle(&particles[j],DeltaT-time);
+            updateParticle(&particles[i],DeltaT*(1.0f-time));
+            updateParticle(&particles[j],DeltaT*(1.0f-time));
           }
         }
       }
@@ -298,10 +262,13 @@ int main(void){
     // Update
     manageCollisions(particles, Nparticles);
     }
+    else if (IsKeyPressed(KEY_RIGHT)) {
+      manageCollisions(particles, Nparticles);
+    }
     // Drawing
     BeginDrawing();
       ClearBackground(RAYWHITE);
-      drawParticles(RED, particles, Nparticles);
+      drawParticles(particles, Nparticles);
       drawPause(pause);
       drawStatistics(particles,Nparticles);
     EndDrawing();
