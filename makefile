@@ -7,8 +7,8 @@
 all:
 	cc -o bounce main.c -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 && ./bounce
 
-test:
-	cc -o test test.c && ./test
+legacy:
+	cc -o bounce main_backup.c -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 && ./bounce
 
 
 # end

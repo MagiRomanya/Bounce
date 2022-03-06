@@ -3,6 +3,15 @@
 #include <math.h>
 #include <stdlib.h>
 
+float InvSqrt(float x)
+{
+        float xhalf = 0.5f * x;
+        int i = *(int*)&x;            // store floating-point bits in integer
+        i = 0x5f3759df - (i >> 1);    // initial guess for Newton's method
+        x = *(float*)&i;              // convert new bits into float
+        x = x*(1.5f - xhalf*x*x);     // One round of Newton's method
+        return x;
+}
 // Particle data structure
 typedef struct{
   int id; // Particle identifier
@@ -10,21 +19,26 @@ typedef struct{
   float y; // Vertical coordinate
   float vx; // Horizontal velocity component
   float vy; // Vertical velocity component
+  float x1, y1, vx1, vy1; // Future coordinates and velocities
   float r; // Particle's radious
   float m; // Particle's mass
-  int lastCollision; // Id of the last particle it collided with
 }Particle;
 
 
 Particle genParticle(float x, float y, float vx, float vy, int* counter){
+  /* Initializes a particle struct */
   Particle particle;
   particle.x = x;
   particle.y = y;
   particle.vx = vx;
   particle.vy = vy;
+  // We calculate the future positions and velocities later
+  particle.x1 = x;
+  particle.y1 = y;
+  particle.vx1 = vx;
+  particle.vy1 = vy;
   particle.m = 1.0f;
   particle.r = 20.0;
-  particle.lastCollision = -1;
   particle.id = *counter;
   (*counter)++;
   return particle;
@@ -32,10 +46,12 @@ Particle genParticle(float x, float y, float vx, float vy, int* counter){
 
 #define ScreenHeight 600
 #define ScreenWidth 800
-#define DeltaT 1.0f
-
+#define DeltaT 0.1f
+// TODO: Fix the overlapping particles: (BUG: calculating new coldinates with old velocities)
 
 void drawParticles(Particle particles[], int n){
+  /* Draws the particles to the screen in diferent colors */
+  // TODO: Make the colors cycle when Nparticles > Ncolors
   Color colors[]= {
     DARKPURPLE,
     PINK,
@@ -50,20 +66,18 @@ void drawParticles(Particle particles[], int n){
     VIOLET
   };
   int n_colors=sizeof(colors)/sizeof(RED);
-  if (n>n_colors) {
-    printf("WARNING: Too much particles for the colors");
-  }
+  /* for (int i =0; i<n; i++){ */
+  /*   DrawCircle(particles[i].x1, particles[i].y1, particles[i].r, BLACK); */
+  /* } */
   for (int i =0; i<n; i++){
-    DrawCircle(particles[i].x, particles[i].y, particles[i].r, colors[i]);
-    /* DrawCircle(particles[i].x + particles[i].vx*DeltaT, */
-    /*            particles[i].y + particles[i].vy*DeltaT, */
-    /*            particles[i].r, colors[i]); */
+    DrawCircle(particles[i].x, particles[i].y, particles[i].r, colors[i%n_colors]);
     // Draw velocities
     //DrawLine(particles[i].x, particles[i].y, (particles[i].vx*10+particles[i].x), (particles[i].vy*10+particles[i].y), BLACK);
   }
 }
 
 void drawPause(bool pause){
+  /* Dispays the pause symbol when the game is paused */
   Vector2 coordinates = (Vector2){ScreenWidth-50, 50};
   if (pause) {
     Vector2 size = (Vector2){-3, -20};
@@ -74,51 +88,42 @@ void drawPause(bool pause){
 }
 
 void drawStatistics(Particle particles[], int n){
+  /* Makes visible the energy and momentum counter on the screen */
   float tmomentum = 0.0f;
   float tenergy = 0.0f;
-  float speed;
+  float speed2;
   for (int i=0;i<n;i++){
-    speed = sqrtf(particles[i].vx*particles[i].vx+particles[i].vy*particles[i].vy);
-    tmomentum += particles[i].m*speed;
-    tenergy += particles[i].m*speed*speed/2.0f;
+    speed2 = (particles[i].vx*particles[i].vx+particles[i].vy*particles[i].vy);
+    tmomentum += particles[i].m*sqrtf(speed2);
+    tenergy += particles[i].m*speed2/2.0f;
   }
   DrawText(TextFormat("Momentum = %f",tmomentum), 40, 50, 20, LIGHTGRAY);
   DrawText(TextFormat("Energy = %f",tenergy), 40, 80, 20, LIGHTGRAY);
 }
 void resolveCollision(Particle* p1, Particle* p2){
-  float vx1, vy1;
-  float vx2, vy2;
-  float dot = (p1->vx-p2->vx)*(p1->x-p2->x) + (p1->vy-p2->vy)*(p1->y-p2->y);
+  /* Handles the physics of a collision between 2 particles (elastic collisions). It assigns
+   *the new velocities to the particles */
+  float vx_new1, vy_new1;
+  float vx_new2, vy_new2;
+  float dot = (p1->vx1-p2->vx1)*(p1->x1-p2->x1) + (p1->vy1-p2->vy1)*(p1->y1-p2->y1);
   //float distance = (p1->r+p2->r)*(p1->r+p2->r);
-  float distance = (p1->x-p2->x)*(p1->x-p2->x) + (p1->y-p2->y)*(p1->y-p2->y);
+  float distance = (p1->x1-p2->x1)*(p1->x1-p2->x1) + (p1->y1-p2->y1)*(p1->y1-p2->y1);
   float tmass = p1->m+p2->m;
   float frac = dot/(distance*tmass);
 
   // Calculate the new velocities
-  vx1 = p1->vx - 2.0f*p2->m*frac*(p1->x-p2->x);
-  vy1 = p1->vy - 2.0f*p2->m*frac*(p1->y-p2->y);
+  vx_new1 = p1->vx - 2.0f*p2->m*frac*(p1->x1-p2->x1);
+  vy_new1 = p1->vy - 2.0f*p2->m*frac*(p1->y1-p2->y1);
 
-  vx2 = p2->vx - 2.0f*p1->m*frac*(p2->x-p1->x);
-  vy2 = p2->vy - 2.0f*p1->m*frac*(p2->y-p1->y);
+  vx_new2 = p2->vx - 2.0f*p1->m*frac*(p2->x1-p1->x1);
+  vy_new2 = p2->vy - 2.0f*p1->m*frac*(p2->y1-p1->y1);
 
   //printf("Colliding!   D=%f, Delta=%f\n",distance,distance - (p1->r+p2->r)*(p1->r+p2->r));
   // Assign the new velocities
-  p1->vx = vx1;
-  p1->vy = vy1;
-  p2->vx = vx2;
-  p2->vy = vy2;
-}
-
-float collisionDistance(float t, Particle p1, Particle p2){
-  float output = 0;
-  float x1t, x2t, y1t, y2t;
-  // Calculate the position as a function of time
-  x1t = p1.x + p1.vx*t;
-  y1t = p1.y + p1.vy*t;
-  x2t = p2.x + p2.vx*t;
-  y2t = p2.y + p2.vy*t;
-  output = (x1t-x2t)*(x1t-x2t) + (y1t-y2t)*(y1t-y2t);
-  return output - (p1.r+p2.r)*(p1.r+p2.r);
+  p1->vx1 = vx_new1;
+  p1->vy1 = vy_new1;
+  p2->vx1 = vx_new2;
+  p2->vy1 = vy_new2;
 }
 
 float collisionWallTime(Particle p1){
@@ -142,6 +147,7 @@ float collisionWallTime(Particle p1){
 }
 
 float collisionTime(Particle p1, Particle p2){
+  /* Calculates when 2 particles would collide assuming they are not colliding and will have collided in the next frame */
   float dx, dy, dvx, dvy;
   float a, b, c; // 2nd degree equation coefficients
   float time;
@@ -159,56 +165,28 @@ float collisionTime(Particle p1, Particle p2){
   return time;
 }
 
-float zeroSecant(float func(float), float guess, float guess2, float epsilon){
-  float xn[3] = {guess, guess2, 0.0f};
-  bool found = false;
-  for (int i=0; i<1000; i++) {
-    xn[2] = xn[1] - func(xn[1])*(xn[1]-xn[0])/(func(xn[1])-func(xn[0]));
-    xn[0] = xn[1];
-    xn[1] = xn[2];
-    xn[2] = 0.0f;
-    if (func(xn[1])<epsilon) {
-      found = true;
-      break;
-    }
-  }
-  if (!found) printf("WARNING: Root not found!");
-  return xn[1];
-}
-
 void updateParticle(Particle* particle, float t){
-  particle->x += particle->vx*t;
-  particle->y += particle->vy*t;
+  particle->x1 = particle->x + particle->vx*t;
+  particle->y1 = particle->y + particle->vy*t;
 }
 
 void manageCollisions(Particle particles[], int n){
-  bool collided[n];
-  float nextX[2];
+  /* Checks for collisions with the screen border and between particles */
   for (int i=0; i<n; i++){
-    nextX[0] = particles[i].x+ particles[i].vx*DeltaT;
-    nextX[1] = particles[i].y+ particles[i].vy*DeltaT;
     // Collisions with screen edges
-    if ((nextX[0] - particles[i].r<0) | (nextX[0]+particles[i].r>ScreenWidth)){
-      collided[i] = true;
-      particles[i].vx *= -1.0f;
+    if ((particles[i].x1 - particles[i].r<0) | (particles[i].x1+particles[i].r>ScreenWidth)){
+      particles[i].vx1 = -1.0f*particles[i].vx;
     }
-    if ((nextX[1] - particles[i].r<0) | (nextX[1]+particles[i].r>ScreenHeight)){
-      collided[i] = true;
-      particles[i].vy *= -1.0f;
+    if ((particles[i].y1 - particles[i].r<0) | (particles[i].y1+particles[i].r>ScreenHeight)){
+      particles[i].vy1 = -1.0f*particles[i].vy;
     }
     // Collisions between other particles
 
     for (int j=0; j<i; j++){
-      float futureX[4] ={
-        particles[i].x+ particles[i].vx*DeltaT,
-        particles[i].y+ particles[i].vy*DeltaT,
-        particles[j].x+ particles[j].vx*DeltaT,
-        particles[j].y+ particles[j].vy*DeltaT,
-      };
-      if (fabs(futureX[0]-futureX[2])<particles[i].r+particles[j].r) {
-        if (fabs(futureX[1]-futureX[3])<particles[i].r+particles[j].r) {
-          float dx = futureX[0]-futureX[2];
-          float dy = futureX[1]-futureX[3];
+      if (fabs(particles[i].y1-particles[j].y1)<particles[i].r+particles[j].r) {
+        if (fabs(particles[i].x1-particles[j].x1)<particles[i].r+particles[j].r) {
+          float dx = particles[i].x1-particles[j].x1;
+          float dy = particles[i].y1-particles[j].y1;
           float dist = (dx)*(dx) + (dy)*(dy);
           float colDist = (particles[i].r+particles[j].r)*(particles[i].r+particles[j].r);
           float dxp = particles[i].x-particles[j].x;
@@ -216,27 +194,155 @@ void manageCollisions(Particle particles[], int n){
           if ((dist < colDist) && !(dxp*dxp + dyp*dyp < colDist)) {
             // Buscar el punt on xoquen i calcular a on han de ser al següent instant de temps
             float time = collisionTime(particles[i], particles[j]);
-            collided[i] = true;
-            collided[j] = true;
-            updateParticle(&particles[i],time*DeltaT);
-            updateParticle(&particles[j],time*DeltaT);
+            particles[i].x1 = particles[i].x + particles[i].vx*time*DeltaT;
+            particles[i].y1 = particles[i].y + particles[i].vy*time*DeltaT;
+            particles[j].x1 = particles[j].x + particles[j].vx*time*DeltaT;
+            particles[j].y1 = particles[j].y + particles[j].vy*time*DeltaT;
             resolveCollision(&particles[i],&particles[j]);
-            updateParticle(&particles[i],DeltaT*(1.0f-time));
-            updateParticle(&particles[j],DeltaT*(1.0f-time));
+            particles[i].x1 = particles[i].x1 + particles[i].vx1*(1.0f-time)*DeltaT;
+            particles[i].y1 = particles[i].y1 + particles[i].vy1*(1.0f-time)*DeltaT;
+            particles[j].x1 = particles[j].x1 + particles[j].vx1*(1.0f-time)*DeltaT;
+            particles[j].y1 = particles[j].y1 + particles[j].vy1*(1.0f-time)*DeltaT;
           }
         }
       }
     }
-    if (!collided[i]) {
-      updateParticle(&particles[i], DeltaT);
-    }
   }
 }
 
-void updatePhysics(Particle particles[], int n){
+// Calculates a step of RK4
+//
+//	EXAMPLE: Harmonic oscilator
+//
+//	diferential eq  dv_z/dt = -kz     (where v_z = dz/dt)
+//		        dz/dt = v_z
+//
+//	=> y = (v_z, z)	=> dy/dx = f(x,y) = (dv_z/dz, dz/dx) = ( -kz, v_z))
+//	   x = t
+// y[]       Dependent variables (position & velociteies)
+// x         Independent variable
+// size      Number of dependent variables
+// func      Function which returns the value of the derivative
+// h         Step size
+// y1[]      Updated dependent variables for the next step
+//
+void rungekutta4(const float y[], float x, int size, int (*func)(float, const float*, float*, int), float h, float* y1)
+{
+	int i;
+	float K1[size], K2[size], K3[size], K4[size], ycache[size];
+
+	// Sets K1 = f(x,y)
+	func(x,y,K1,size);
+
+	// Sets K2 = f(x + h/2, y + h/2*K1)
+	for (i=0; i<size; i++)
+	{
+		ycache[i] = y[i] + h/2*K1[i];
+	}
+	func(x + h/2, ycache, K2, size);
+
+	// Sets K3 = f(x + h/2, y + h/2*K2)
+	for (i=0; i<size; i++)
+	{
+		ycache[i] = y[i] + h/2*K2[i];
+	}
+	func(x + h/2, ycache, K3, size);
+
+	// Sets K4 = f(x + h, y + h*K3)
+	for (i=0; i<size; i++)
+	{
+		ycache[i] = y[i] + h*K3[i];
+	}
+	func(x + h, ycache, K4, size);
+
+	// Computes the final answer
+	for (i=0; i<size; i++)
+	{
+		y1[i] = y[i] + h/6*(K1[i] + 2*(K2[i]+K3[i]) + K4[i]);
+	}
+}
+
+int gravity(float x, const float y[], float f[], int size)
+{
+	int i, j, k;
+	const int SIZE = size;
+	const int SIZE2 = size/2; // SIZE/2
+	const int N=SIZE/4; // We have N particles, DIM coordinates and DIM velocities => number of dimentions of y[] f[]
+	const float G = 1.0e3f; // Gravitational constant multiplied by m
+  const int DIM = 2;
+	float sum2, dist;
+
+
+	// Initialize f
+	for (i=0; i<SIZE2; i++)
+	{
+		f[i] = y[SIZE2+i]; // dz/dx = v_z
+		f[SIZE2+i] = 0;
+	}
+	for (i=0; i<SIZE2 -DIM; i+=DIM)
+	{
+		for (j=i+DIM; j<SIZE2; j+=DIM)
+		{
+			sum2 = 0;
+			// CALCULATE THE DISTANCE
+			for (k=0; k<DIM; k++)
+			{
+				sum2 +=(y[j+k]-y[i+k])*(y[j+k]-y[i+k]); // x**2 + y**2 + z**2
+			}
+			dist = InvSqrt(sum2);
+			// COMPUTES THE ACCELERATION
+			for (k=0; k<DIM; k++)
+			{
+				double f_module = G*(dist*dist*dist)*(y[j+k]-y[i+k]);
+				f[SIZE2+i+k] += f_module;
+				f[SIZE2+j+k] += -f_module;
+			}
+		}
+	}
+	return 0;
+}
+
+void calculateNextStep_rk4(Particle particles[], int n,float time, float dt){
+  float y[n*4];
+  float y1[n*4];
+  // Creates the y[] output vector
   for (int i=0; i<n; i++){
-    particles[i].x += particles[i].vx;
-    particles[i].y += particles[i].vy;
+    y[i*2] = particles[i].x;
+    y[i*2+1] = particles[i].y;
+  }
+  for (int i=0; i<n; i++){
+    y[n*2+i*2] = particles[i].vx;
+    y[n*2+i*2+1] = particles[i].vy;
+  }
+  rungekutta4(y, time, 4*n, gravity, DeltaT, y1);
+  // Assigns the y1[] to the future coordinates and velocities
+  for (int i=0; i<n; i++){
+    particles[i].x1 = y1[i*2];
+    particles[i].y1 = y1[i*2+1];
+  }
+  for (int i=0; i<n; i++){
+    particles[i].vx1 = y1[n*2+i*2];
+    particles[i].vy1 = y1[n*2+i*2+1];
+  }
+}
+
+void calculateNextStep(Particle particles[], int n, float dt){
+  /* This function must update the future positions and velocites according to the interactions and physical state */
+  for (int i=0; i<n; i++){
+    particles[i].x1 = particles[i].x + particles[i].vx*dt;
+    particles[i].y1 =  particles[i].y + particles[i].vy*dt;
+    particles[i].vx1 = particles[i].vx;
+    particles[i].vy1 =  particles[i].vy;
+  }
+}
+
+void updateParticles(Particle particles[], int n){
+  /* Sets the future coordinates and velocities to the present ones*/
+  for (int i = 0; i<n; i++){
+    particles[i].x = particles[i].x1;
+    particles[i].y = particles[i].y1;
+    particles[i].vx = particles[i].vx1;
+    particles[i].vy = particles[i].vy1;
   }
 }
 
@@ -256,13 +362,17 @@ int main(void){
   particles[5] = genParticle(150.0f,550.0f,1.5f,-3.5f, &Nparticles);
   particles[6] = genParticle(150.0f,450.0f,3.5f,0.25f, &Nparticles);
   bool pause = false;
+
   while(!WindowShouldClose()){
+    // Pauses the game
     if (IsKeyPressed(KEY_SPACE)) pause = !pause;
     if (!pause){
     // Update
-    manageCollisions(particles, Nparticles);
+      calculateNextStep_rk4(particles, Nparticles,0.0f, DeltaT);
+      manageCollisions(particles, Nparticles);
     }
     else if (IsKeyPressed(KEY_RIGHT)) {
+      calculateNextStep_rk4(particles, Nparticles,0.0f, DeltaT);
       manageCollisions(particles, Nparticles);
     }
     // Drawing
@@ -272,6 +382,12 @@ int main(void){
       drawPause(pause);
       drawStatistics(particles,Nparticles);
     EndDrawing();
+    if (!pause){
+    updateParticles(particles,Nparticles);
+    }
+    else if (IsKeyPressed(KEY_RIGHT)) {
+    updateParticles(particles,Nparticles);
+    }
   }
   CloseWindow(); // Closes the window
   return 0;
