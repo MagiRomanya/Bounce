@@ -268,7 +268,7 @@ int gravity(float x, const float y[], float f[], int size)
 	const int SIZE = size;
 	const int SIZE2 = size/2; // SIZE/2
 	const int N=SIZE/4; // We have N particles, DIM coordinates and DIM velocities => number of dimentions of y[] f[]
-	const float G = 1.0e3f; // Gravitational constant multiplied by m
+	const float G = 5.0e3f; // Gravitational constant multiplied by m
   const int DIM = 2;
 	float sum2, dist;
 
